@@ -36,30 +36,39 @@
             </span>
        </span>
 
-       <form method="POST" action="{{url_for('ttr_auth', state=STATE)}}">
-            <button id="ttr_auth"> <img id="img_ttr_auth" src="{{url_for('static',filename='img/sign-in-with-twitter-gray.png')}}"/> </button>
-       </form>
+        <form method="POST" action="{{url_for('ttr_auth', state=STATE)}}">
+            <button id="ttr_auth"><img id="img_ttr_auth"
+                                       src="{{url_for('static',filename='img/sign-in-with-twitter-gray.png')}}"/>
+            </button>
+        </form>
 
     </div>
     {% endblock %}
 </div>
 {% block script %}
 <script>
+    function google_log() {
+        $.ajax({
+            url: '/google_log?state={{STATE}}',
+            contentType: 'application/octet-stream;encoding-utf8',
+            processData: false,
+            data: '.',
+            method: 'POST',
+            async: false
+        })
+    }
+
     function signinCallback(authResult) {
-        console.log(authResult);
         if (authResult) {
             if (authResult['error'] == undefined) {
-                gapi.auth.setToken(authResult); // Сохраняет возвращенный токен.
-                getEmail();                     // Инициирует запрос для получения адреса электронной почты.
-            } else {
-                console.log('An error occurred');
+                gapi.auth.setToken(authResult);
+                getEmail();
+            } else if (authResult['error'] == 'access_denied') {
+                google_log();
             }
-        } else {
-            console.log('Empty authResult');  // Произошла ошибка
         }
     }
     function getEmail() {
-        // Загружает библиотеки oauth2 для активации методов userinfo.
         gapi.client.load('oauth2', 'v2', function () {
             var request = gapi.client.oauth2.userinfo.get();
             request.execute(getEmailCallback);
@@ -67,7 +76,7 @@
     }
 
     function getEmailCallback(obj) {
-        console.log(obj);
+
         if (obj['email'] && obj['verified_email']) {
             $.ajax({
                 url: '/google_auth?state={{STATE}}',
@@ -79,12 +88,14 @@
                     json_result = JSON.parse(result);
                     if (json_result["user_hash"]) {
                         window.location.href = '/authorise?hash=' + json_result['user_hash']
+                        check_authorisation = true;
                     } else {
                         window.location.href = '/error'
                     }
                 }
             })
         }
+
     }
 </script>
 {% endblock %}

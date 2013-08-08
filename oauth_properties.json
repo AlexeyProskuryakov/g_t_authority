@@ -5,6 +5,6 @@
     "twitter": {
         "consumer_key": "BNFvKYnVrvD4WldufjahMw",
         "consumer_secret": "Rn2r8jABTuykaV3KJbGOUCAytIqVmoglwbHGAmdHj3Y",
-        "callback_url": "http://localhost:5000/ttr_auth"
+        "callback_url": "http://178.49.13.210:5000/ttr_auth"
     }
 }

@@ -19,10 +19,19 @@ days_rot = timedelta(days=30)
 time_format = '%Y-%m-%d %H:%M:%S'
 
 #loggers init
-log = logging.getLogger()
+log = logging.getLogger(__name__)
 log.setLevel('DEBUG')
-log.addHandler(logging.StreamHandler(sys.stdout))
-log.addHandler(logging.FileHandler(os.path.join(curr_path, 'logs/result.log')))
+frmtr = logging.Formatter('%(asctime)s|%(process)d|%(levelname)s|: %(message)s')
+try:
+    os.mkdir(os.path.join(curr_path, 'logs'))
+except:
+    pass
+fh = logging.FileHandler(os.path.join(curr_path, 'logs', 'result.log'), mode='w+')
+fh.setFormatter(frmtr)
+sh = logging.StreamHandler(sys.stdout)
+sh.setFormatter(frmtr)
+log.addHandler(fh)
+log.addHandler(sh)
 
 #oauth props init
 props_filename = os.path.join(curr_path, 'oauth_properties.json')
@@ -47,10 +56,15 @@ def load_interested_identities(source_google, source_twitter, sep=';'):
     source must be file like object with some separator like
     """
     all_objects = source_google.read()
-    objects = all_objects.split(sep)
+    objects = [el.strip() for el in all_objects.split(sep) if len(el)]
 
     extended = source_twitter.read()
-    objects.extend(extended.split(sep))
+    objects.extend([el.strip() for el in extended.split(sep) if len(el)])
+
+    if log.level == logging.DEBUG:
+        log.debug('loaded identities:\n')
+        for el in objects:
+            log.debug(el)
 
     return objects
 
@@ -77,55 +91,65 @@ def main():
 @app.route('/ttr_auth', methods=['POST', 'GET'])
 def ttr_auth():
     twitter = Twython(TTR_CONSUMER_KEY, TTR_CONSUMER_SECRET)
+
     if request.method == "POST" and session['state'] == request.args.get('state'):
+        log.info('[][twitter] someone want to login')
         try:
             ttr_auth = twitter.get_authentication_tokens(callback_url=TTR_CALLBACK_URL)
-            oauth_token = ttr_auth['oauth_token']
-            print oauth_token
-            oauth_secret = ttr_auth['oauth_token_secret']
-            print oauth_secret
-            session['ttr_oauth_token'] = oauth_token
-            session['ttr_oauth_secret'] = oauth_secret
+            session['ttr_oauth_token'] = ttr_auth['oauth_token']
+            session['ttr_oauth_secret'] = ttr_auth['oauth_token_secret']
             return redirect(ttr_auth['auth_url'])
         except TwythonError as e:
             return redirect(url_for('error'))
 
-    elif request.method == "GET" and request.args.get('oauth_token') == session['ttr_oauth_token']:
+    elif request.method == "GET":
         #check for denied
         if request.args.get('denied'):
             return redirect(url_for('main'))
 
-        oauth_verifier = request.args.get('oauth_verifier')
-        if oauth_verifier:
-            try:
-                twitter = Twython(TTR_CONSUMER_KEY, TTR_CONSUMER_SECRET, session['ttr_oauth_token'],
-                                  session['ttr_oauth_secret'])
-                authorized_credentials = twitter.get_authorized_tokens(oauth_verifier)
-                twitter_id = authorized_credentials['user_id']
-                v_hash = get_visitor_hash({'t_id': twitter_id})
-                if not v_hash:
+        if request.args.get('oauth_token') == session['ttr_oauth_token']:
+            oauth_verifier = request.args.get('oauth_verifier')
+            if oauth_verifier:
+                try:
+                    twitter = Twython(TTR_CONSUMER_KEY, TTR_CONSUMER_SECRET, session['ttr_oauth_token'],
+                                      session['ttr_oauth_secret'])
+                    authorized_credentials = twitter.get_authorized_tokens(oauth_verifier)
+                    twitter_id = authorized_credentials['user_id']
+                    v_hash = get_visitor_hash({'t_id': twitter_id})
+                    if not v_hash:
+                        log.info('[%s][twitter] not allowed' % twitter_id)
+                        return redirect(url_for('error'))
+
+                    del twitter
+                    log.info('[%s][twitter] authorise' % twitter_id)
+                    return redirect(url_for('authorise', hash=v_hash))
+
+                except TwythonError as e:
                     return redirect(url_for('error'))
 
-                del twitter
-                return redirect(url_for('authorise', hash=v_hash))
+            return redirect(url_for('authorise'))
+    return redirect(url_for('main'))
 
-            except TwythonError as e:
-                return redirect(url_for('error'))
 
-        return redirect(url_for('authorise'))
+@app.route('/google_log', methods=['POST'])
+def google_log():
+    log.info('[][google] someone want to login')
+    return make_response('', 200)
 
 
 @app.route('/google_auth', methods=['POST'])
 def google_auth():
-    interested_data = request.data
+    email = request.data
 
     if session.get('state') != request.args.get('state'):
         return make_response(json.dumps({'error': 'bad request data'}), 200)
 
-    user_hash = get_visitor_hash({'email': interested_data})
+    user_hash = get_visitor_hash({'email': email})
     if not user_hash:
+        log.info('[%s][google] not allowed' % email)
         return make_response(json.dumps({'error': 'not allowed'}), 200)
 
+    log.info('[%s][google] authorised' % email)
     json_result = json.dumps({'user_hash': user_hash})
 
     return make_response(json_result, 200)
@@ -135,7 +159,8 @@ def google_auth():
 def authorise():
     user_hash = request.args.get('hash')
     identity = get_visitor_identity(user_hash)
-    log.info('[%s] authorise ' % identity)
+    if not identity or not user_hash:
+        return redirect(url_for('main'))
     return render_template('authorise.html', identity=identity)
 
 
@@ -179,7 +204,6 @@ def get_visitor_hash(visitor):
     identity = visitor.get('email') or visitor.get('t_id')
 
     if len(interested_identities) and identity not in interested_identities:
-        log.info('[%s] not allowed' % identity)
         return None
 
     cur.execute("SELECT e_hash, visit_time FROM entries WHERE e_identity = '%s'" % identity)
@@ -227,4 +251,4 @@ def get_visitor_identity(v_hash):
 if __name__ == '__main__':
     if len(sys.argv) > 1 and sys.argv[1] == 'init_db':
         init_db()
-    app.run()
+    app.run(host='0.0.0.0', port=5000)
