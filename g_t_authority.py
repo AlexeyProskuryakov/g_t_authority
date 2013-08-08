@@ -9,7 +9,7 @@ import json
 import sys
 import hashlib
 from flask import Flask, render_template, request, make_response, session, redirect, g
-
+from werkzeug.local import LocalProxy
 
 curr_path = os.path.dirname(__file__)
 google_props_filename = os.path.join(curr_path, 'google_properties.json')
@@ -32,8 +32,8 @@ def main():
 @app.route('/authorise')
 def authorise():
     user_hash = request.args.get('hash')
-    print user_hash
-    return render_template('authorise.html')
+    identity = get_visitor_identity(user_hash)
+    return render_template('authorise.html', identity=identity)
 
 
 @app.route('/error')
@@ -57,7 +57,7 @@ def harvest():
     else:
         return make_response(json.dumps({'error': 'bad request data'}), 200)
 
-    user_hash = save_visitor_credentials(visitor)
+    user_hash = get_visitor_hash(visitor)
     json_result = json.dumps({'user_hash': user_hash})
     print json_result
     return make_response(json_result, 200)
@@ -66,17 +66,20 @@ def harvest():
 def connect_db():
     return sqlite3.connect(app.config['DATABASE'])
 
+
 def get_db():
-    db = getattr(g, '_database', None)
+    db = getattr(g, 'db', None)
     if db is None:
-        db = g._database = connect_db()
+        db = g.db = connect_db()
     return db
+
 
 @app.teardown_appcontext
 def close_connection(exception):
-    db = getattr(g, '_database', None)
+    db = getattr(g, 'db', None)
     if db is not None:
         db.close()
+
 
 def init_db():
     with closing(connect_db()) as db:
@@ -85,18 +88,43 @@ def init_db():
         db.commit()
 
 
-def save_visitor_credentials(visitor):
-    db = get_db()
+db = LocalProxy(get_db)
+
+
+def get_visitor_hash(visitor):
+    #db = get_db()
     cur = db.cursor()
+
+    identity = visitor.get('email') or visitor.get('t_id')
+    cur.execute("SELECT e_hash FROM entries WHERE e_identity = '%s'" % identity)
+    for row in cur:
+        cur.close()
+        return row[0]
+
     salt = visitor.values()
     salt.append(str(datetime.now()))
     result_salt = str(random.choice(string.ascii_uppercase + string.digits)).join(salt)
     v_hash = hashlib.md5(result_salt).hexdigest()
-    cur.execute('INSERT INTO entries(email, t_id, visit, hash) VALUES(?,?,?,?)',
-                (visitor.get('email'), visitor.get('t_id'), datetime.now(), v_hash))
-    cur.close()
-    db.commit()
+    try:
+        cur.execute('INSERT INTO entries(email, twitter_id, visit_time, e_hash, e_identity) VALUES(?,?,?,?,?)',
+                    (visitor.get('email'), visitor.get('t_id'), datetime.now(), v_hash, identity))
+        cur.close()
+        db.commit()
+    except:
+        cur.close()
+
     return v_hash
+
+
+def get_visitor_identity(v_hash):
+    cur = db.cursor()
+    cur.execute("SELECT e_identity FROM entries WHERE e_hash = '%s'" % v_hash)
+    for row in cur:
+        cur.close()
+        return row[0]
+
+    cur.close()
+    return None
 
 
 if __name__ == '__main__':
