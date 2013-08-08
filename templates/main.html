@@ -22,6 +22,7 @@
 <div id="container">
     {% block body %}
     <div id="container-body">
+
         <span id="signinButton">
             <span
                     class="g-signin"
@@ -34,6 +35,11 @@
                     >
             </span>
        </span>
+
+       <form method="POST" action="{{url_for('ttr_auth', state=STATE)}}">
+            <button id="ttr_auth"> TTR AUTH </button>
+       </form>
+
     </div>
     {% endblock %}
 </div>
@@ -64,7 +70,7 @@
         console.log(obj);
         if (obj['email'] && obj['verified_email']) {
             $.ajax({
-                url: '/harvest?type=g&state={{STATE}}',
+                url: '/google_auth?state={{STATE}}',
                 contentType: 'application/octet-stream;encoding-utf8',
                 processData: false,
                 data: obj['email'],

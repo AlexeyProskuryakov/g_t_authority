@@ -8,15 +8,30 @@ import random
 import json
 import sys
 import hashlib
-from flask import Flask, render_template, request, make_response, session, redirect, g
+import logging
+from flask import Flask, render_template, request, make_response, session, redirect, g, url_for
 from werkzeug.local import LocalProxy
+from twython import Twython, TwythonError
 
 curr_path = os.path.dirname(__file__)
-google_props_filename = os.path.join(curr_path, 'google_properties.json')
-props = json.loads(open(google_props_filename, 'r').read())
 
-GOOGLE_CLIENT_ID = props['web']['client_id']
+#loggers init
+log = logging.getLogger()
+log.setLevel('DEBUG')
+log.addHandler(logging.StreamHandler(sys.stdout))
 
+#oauth props init
+props_filename = os.path.join(curr_path, 'oauth_properties.json')
+props = json.loads(open(props_filename, 'r').read())
+
+GOOGLE_CLIENT_ID = props['google']['client_id']
+
+TTR_CONSUMER_KEY = props['twitter']['consumer_key']
+TTR_CONSUMER_SECRET = props['twitter']['consumer_secret']
+TTR_REQUEST_TOKEN_URL = props['twitter']['request_token_url']
+TTR_CALLBACK_URL = props['twitter']['callback_url']
+
+#flask init
 app = Flask(__name__, static_folder='static', static_url_path='')
 app.config['SECRET_KEY'] = 'FUCKING_SECRET_KEY_FUCKING_FUCKING_FUCKING!!!'
 app.config['DATABASE'] = os.path.join(curr_path, 'db/database.db')
@@ -27,6 +42,60 @@ def main():
     state = ''.join(random.choice(string.ascii_uppercase + string.digits) for _ in xrange(32))
     session['state'] = state
     return render_template('main.html', GOOGLE_CLIENT_ID=GOOGLE_CLIENT_ID, STATE=state)
+
+
+@app.route('/ttr_auth', methods=['POST', 'GET'])
+def ttr_auth():
+    twitter = Twython(TTR_CONSUMER_KEY, TTR_CONSUMER_SECRET)
+    if request.method == "POST" and session['state'] == request.args.get('state'):
+        try:
+            ttr_auth = twitter.get_authentication_tokens(callback_url=TTR_CALLBACK_URL)
+            oauth_token = ttr_auth['oauth_token']
+            print oauth_token
+            oauth_secret = ttr_auth['oauth_token_secret']
+            print oauth_secret
+            session['ttr_oauth_token'] = oauth_token
+            session['ttr_oauth_secret'] = oauth_secret
+            return redirect(ttr_auth['auth_url'])
+        except TwythonError as e:
+            return redirect(url_for('error'))
+
+    elif request.method == "GET" and request.args.get('oauth_token') == session['ttr_oauth_token']:
+        #check for denied
+        if request.args.get('denied'):
+            return redirect(url_for('main'))
+
+        oauth_verifier = request.args.get('oauth_verifier')
+        if oauth_verifier:
+            try:
+                twitter = Twython(TTR_CONSUMER_KEY, TTR_CONSUMER_SECRET, session['ttr_oauth_token'],
+                                  session['ttr_oauth_secret'])
+                authorized_credentials = twitter.get_authorized_tokens(oauth_verifier)
+                twitter_id = authorized_credentials['user_id']
+                v_hash = get_visitor_hash({'t_id': twitter_id})
+                del twitter
+                return redirect(url_for('authorise', hash=v_hash))
+
+            except TwythonError as e:
+                return redirect(url_for('error'))
+
+        return redirect(url_for('authorise'))
+
+
+@app.route('/google_auth', methods=['POST'])
+def google_auth():
+    interested_data = request.data
+
+    if session.get('state') != request.args.get('state'):
+        return make_response(json.dumps({'error': 'bad request data'}), 200)
+
+    visitor = {}
+    visitor['email'] = interested_data
+
+    user_hash = get_visitor_hash(visitor)
+    json_result = json.dumps({'user_hash': user_hash})
+    print json_result
+    return make_response(json_result, 200)
 
 
 @app.route('/authorise')
@@ -41,28 +110,8 @@ def error():
     return render_template('error.html')
 
 
-@app.route('/harvest', methods=['POST'])
-def harvest():
-    interested_data = request.data
-    data_type = request.args.get('type')
 
-    if session.get('state') != request.args.get('state'):
-        return redirect('/error')
-
-    visitor = {}
-    if data_type == u'g':
-        visitor['email'] = interested_data
-    elif data_type == u't':
-        visitor['t_id'] = interested_data
-    else:
-        return make_response(json.dumps({'error': 'bad request data'}), 200)
-
-    user_hash = get_visitor_hash(visitor)
-    json_result = json.dumps({'user_hash': user_hash})
-    print json_result
-    return make_response(json_result, 200)
-
-#database functions
+####database functions####
 def connect_db():
     return sqlite3.connect(app.config['DATABASE'])
 

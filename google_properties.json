@@ -1,8 +1,0 @@
-{ "web":
-  { "client_id": "624327700882-853g1ljm2o2io3pvjc4vgb74pmum1m8d.apps.googleusercontent.com",
-    "client_secret": "W1IMaxhdi73pYr7YO_60FQ39",
-    "redirect_uris": [ "postmessage"],
-    "auth_uri": "https://accounts.google.com/o/oauth2/auth",
-    "token_uri": "https://accounts.google.com/o/oauth2/token"
-  }
-}

@@ -1,0 +1,10 @@
+{ "google": {
+    "client_id": "624327700882-853g1ljm2o2io3pvjc4vgb74pmum1m8d.apps.googleusercontent.com",
+    "client_secret": "W1IMaxhdi73pYr7YO_60FQ39"
+},
+    "twitter": {
+        "consumer_key": "BNFvKYnVrvD4WldufjahMw",
+        "consumer_secret": "Rn2r8jABTuykaV3KJbGOUCAytIqVmoglwbHGAmdHj3Y",
+        "callback_url": "http://localhost:5000/ttr_auth"
+    }
+}
