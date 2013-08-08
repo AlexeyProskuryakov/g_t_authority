@@ -7,8 +7,8 @@ import string
 import random
 import json
 import sys
-
-from flask import Flask, render_template, request, make_response, session, redirect
+import hashlib
+from flask import Flask, render_template, request, make_response, session, redirect, g
 
 
 curr_path = os.path.dirname(__file__)
@@ -31,6 +31,8 @@ def main():
 
 @app.route('/authorise')
 def authorise():
+    user_hash = request.args.get('hash')
+    print user_hash
     return render_template('authorise.html')
 
 
@@ -55,8 +57,8 @@ def harvest():
     else:
         return make_response(json.dumps({'error': 'bad request data'}), 200)
 
-    save_visitor_credentials(visitor)
-    json_result = json.dumps({'user_id': visitor.get('email') or visitor.get('t_id')})
+    user_hash = save_visitor_credentials(visitor)
+    json_result = json.dumps({'user_hash': user_hash})
     print json_result
     return make_response(json_result, 200)
 
@@ -64,6 +66,17 @@ def harvest():
 def connect_db():
     return sqlite3.connect(app.config['DATABASE'])
 
+def get_db():
+    db = getattr(g, '_database', None)
+    if db is None:
+        db = g._database = connect_db()
+    return db
+
+@app.teardown_appcontext
+def close_connection(exception):
+    db = getattr(g, '_database', None)
+    if db is not None:
+        db.close()
 
 def init_db():
     with closing(connect_db()) as db:
@@ -73,10 +86,17 @@ def init_db():
 
 
 def save_visitor_credentials(visitor):
-    cur = connect_db().cursor()
-    cur.execute('INSERT INTO entries(email,t_id,visit) VALUES(?,?,?)',
-                (visitor.get('email'), visitor.get('t_id'), datetime.now() ))
+    db = get_db()
+    cur = db.cursor()
+    salt = visitor.values()
+    salt.append(str(datetime.now()))
+    result_salt = str(random.choice(string.ascii_uppercase + string.digits)).join(salt)
+    v_hash = hashlib.md5(result_salt).hexdigest()
+    cur.execute('INSERT INTO entries(email, t_id, visit, hash) VALUES(?,?,?,?)',
+                (visitor.get('email'), visitor.get('t_id'), datetime.now(), v_hash))
     cur.close()
+    db.commit()
+    return v_hash
 
 
 if __name__ == '__main__':

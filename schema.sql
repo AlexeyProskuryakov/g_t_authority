@@ -5,5 +5,6 @@ create table entries (
   email text ,
   t_id int,
   visit date,
+  hash text,
   CONSTRAINT uc_PersonID UNIQUE (email,t_id)
 );
