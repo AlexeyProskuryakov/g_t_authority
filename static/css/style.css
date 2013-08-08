@@ -1,0 +1,20 @@
+.block {
+    text-align: center;
+    margin: 20px;
+    height: 50%;
+}
+
+.block:before {
+    content: '';
+    display: inline-block;
+    height: 100%;
+    vertical-align: middle;
+    margin-right: -0.25em;
+}
+
+.centered {
+    display: inline-block;
+    vertical-align: middle;
+    width: 300px;
+    padding: 10px 15px;
+}
