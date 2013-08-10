@@ -55,18 +55,18 @@ def load_interested_identities(source_google, source_twitter, sep=';'):
     """
     source must be file like object with some separator like
     """
-    all_objects = source_google.read()
-    objects = [el.strip() for el in all_objects.split(sep) if len(el)]
+    google_objects = source_google.read()
+    google_objects = [el.strip() for el in google_objects.split(sep) if len(el)]
 
-    extended = source_twitter.read()
-    objects.extend([el.strip() for el in extended.split(sep) if len(el)])
+    twitter_objects = source_twitter.read()
+    twitter_objects = [el.strip() for el in twitter_objects.split(sep) if len(el)]
 
     if log.level == logging.DEBUG:
         log.debug('loaded identities:\n')
-        for el in objects:
+        for el in google_objects, twitter_objects:
             log.debug(el)
 
-    return objects
+    return google_objects,twitter_objects
 
 
 def get_interested_identities():
@@ -115,10 +115,13 @@ def ttr_auth():
                                       session['ttr_oauth_secret'])
                     authorized_credentials = twitter.get_authorized_tokens(oauth_verifier)
                     twitter_id = authorized_credentials['user_id']
-                    v_hash = get_visitor_hash({'t_id': twitter_id})
-                    if not v_hash:
+
+                    twitter_objects = interested_identities[1]
+                    if len(twitter_objects) and twitter_id not in twitter_objects:
                         log.info('[%s][twitter] not allowed' % twitter_id)
                         return redirect(url_for('error'))
+
+                    v_hash = get_visitor_hash({'t_id': twitter_id})
 
                     del twitter
                     log.info('[%s][twitter] authorise' % twitter_id)
@@ -144,10 +147,13 @@ def google_auth():
     if session.get('state') != request.args.get('state'):
         return make_response(json.dumps({'error': 'bad request data'}), 200)
 
-    user_hash = get_visitor_hash({'email': email})
-    if not user_hash:
+    objects = interested_identities[0]
+
+    if len(objects) and email not in objects:
         log.info('[%s][google] not allowed' % email)
         return make_response(json.dumps({'error': 'not allowed'}), 200)
+
+    user_hash = get_visitor_hash({'email': email})
 
     log.info('[%s][google] authorised' % email)
     json_result = json.dumps({'user_hash': user_hash})
@@ -202,9 +208,6 @@ def get_visitor_hash(visitor):
     cur = db.cursor()
     tstamp = datetime.now()
     identity = visitor.get('email') or visitor.get('t_id')
-
-    if len(interested_identities) and identity not in interested_identities:
-        return None
 
     cur.execute("SELECT e_hash, visit_time FROM entries WHERE e_identity = '%s'" % identity)
     for row in cur:
